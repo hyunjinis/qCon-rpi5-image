@@ -37,6 +37,7 @@ netdev_tx_t br_dev_xmit(struct sk_buff *skb, struct net_device *dev)
 	u8 state = BR_STATE_FORWARDING;
 	struct net_bridge_vlan *vlan;
 	const unsigned char *dest;
+	
 	u16 vid = 0;
 
 	if (unlikely(reason != SKB_NOT_DROPPED_YET)) {
@@ -54,6 +55,7 @@ netdev_tx_t br_dev_xmit(struct sk_buff *skb, struct net_device *dev)
 		return NETDEV_TX_OK;
 	}
 
+	
 	dev_sw_netstats_tx_add(dev, 1, skb->len);
 
 	br_switchdev_frame_unmark(skb);
@@ -257,7 +259,8 @@ static int br_set_mac_address(struct net_device *dev, void *p)
 }
 
 static void br_getinfo(struct net_device *dev, struct ethtool_drvinfo *info)
-{
+{	
+	//modified(strlcpy->strscpy)
 	strscpy(info->driver, "bridge", sizeof(info->driver));
 	strscpy(info->version, BR_VERSION, sizeof(info->version));
 	strscpy(info->fw_version, "N/A", sizeof(info->fw_version));
@@ -472,14 +475,8 @@ static const struct net_device_ops br_netdev_ops = {
 	.ndo_fix_features        = br_fix_features,
 	.ndo_fdb_add		 = br_fdb_add,
 	.ndo_fdb_del		 = br_fdb_delete,
-	.ndo_fdb_del_bulk	 = br_fdb_delete_bulk,
 	.ndo_fdb_dump		 = br_fdb_dump,
 	.ndo_fdb_get		 = br_fdb_get,
-	.ndo_mdb_add		 = br_mdb_add,
-	.ndo_mdb_del		 = br_mdb_del,
-	.ndo_mdb_del_bulk	 = br_mdb_del_bulk,
-	.ndo_mdb_dump		 = br_mdb_dump,
-	.ndo_mdb_get		 = br_mdb_get,
 	.ndo_bridge_getlink	 = br_getlink,
 	.ndo_bridge_setlink	 = br_setlink,
 	.ndo_bridge_dellink	 = br_dellink,
@@ -543,4 +540,7 @@ void br_dev_setup(struct net_device *dev)
 	br_stp_timer_init(br);
 	br_multicast_init(br);
 	INIT_DELAYED_WORK(&br->gc_work, br_fdb_cleanup);
+#ifdef CONFIG_BRIDGE_CREDIT_MODE
+	add_bca(br);
+#endif
 }

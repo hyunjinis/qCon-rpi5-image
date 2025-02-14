@@ -23,6 +23,14 @@
 #include "br_private.h"
 #include "br_private_tunnel.h"
 
+#ifdef CONFIG_BRIDGE_CREDIT_MODE//minkoo
+int (*fp_pay)(struct ancs_container *vif, struct sk_buff *skb);
+EXPORT_SYMBOL(fp_pay);
+#endif
+
+/* Hook for brouter */
+br_should_route_hook_t __rcu *br_should_route_hook __read_mostly;
+EXPORT_SYMBOL(br_should_route_hook);
 static int
 br_netif_receive_skb(struct net *net, struct sock *sk, struct sk_buff *skb)
 {
@@ -30,7 +38,7 @@ br_netif_receive_skb(struct net *net, struct sock *sk, struct sk_buff *skb)
 	return netif_receive_skb(skb);
 }
 
-static int br_pass_frame_up(struct sk_buff *skb, bool promisc)
+static int br_pass_frame_up(struct sk_buff *skb)
 {
 	struct net_device *indev, *brdev = BR_INPUT_SKB_CB(skb)->brdev;
 	struct net_bridge *br = netdev_priv(brdev);
@@ -65,8 +73,6 @@ static int br_pass_frame_up(struct sk_buff *skb, bool promisc)
 	br_multicast_count(br, NULL, skb, br_multicast_igmp_type(skb),
 			   BR_MCAST_DIR_TX);
 
-	BR_INPUT_SKB_CB(skb)->promisc = promisc;
-
 	return NF_HOOK(NFPROTO_BRIDGE, NF_BR_LOCAL_IN,
 		       dev_net(indev), NULL, skb, indev, NULL,
 		       br_netif_receive_skb);
@@ -84,65 +90,27 @@ int br_handle_frame_finish(struct net *net, struct sock *sk, struct sk_buff *skb
 	struct net_bridge_mcast *brmctx;
 	struct net_bridge_vlan *vlan;
 	struct net_bridge *br;
-	bool promisc;
 	u16 vid = 0;
 	u8 state;
 
-	if (!p)
+	if (!p || p->state == BR_STATE_DISABLED)
 		goto drop;
-
-	br = p->br;
-
-	if (br_mst_is_enabled(br)) {
-		state = BR_STATE_FORWARDING;
-	} else {
-		if (p->state == BR_STATE_DISABLED)
-			goto drop;
-
-		state = p->state;
-	}
 
 	brmctx = &p->br->multicast_ctx;
 	pmctx = &p->multicast_ctx;
+	state = p->state;
 	if (!br_allowed_ingress(p->br, nbp_vlan_group_rcu(p), skb, &vid,
 				&state, &vlan))
 		goto out;
 
-	if (p->flags & BR_PORT_LOCKED) {
-		struct net_bridge_fdb_entry *fdb_src =
-			br_fdb_find_rcu(br, eth_hdr(skb)->h_source, vid);
-
-		if (!fdb_src) {
-			/* FDB miss. Create locked FDB entry if MAB is enabled
-			 * and drop the packet.
-			 */
-			if (p->flags & BR_PORT_MAB)
-				br_fdb_update(br, p, eth_hdr(skb)->h_source,
-					      vid, BIT(BR_FDB_LOCKED));
-			goto drop;
-		} else if (READ_ONCE(fdb_src->dst) != p ||
-			   test_bit(BR_FDB_LOCAL, &fdb_src->flags)) {
-			/* FDB mismatch. Drop the packet without roaming. */
-			goto drop;
-		} else if (test_bit(BR_FDB_LOCKED, &fdb_src->flags)) {
-			/* FDB match, but entry is locked. Refresh it and drop
-			 * the packet.
-			 */
-			br_fdb_update(br, p, eth_hdr(skb)->h_source, vid,
-				      BIT(BR_FDB_LOCKED));
-			goto drop;
-		}
-	}
-
 	nbp_switchdev_frame_mark(p, skb);
 
 	/* insert into forwarding database after filtering to avoid spoofing */
+	br = p->br;
 	if (p->flags & BR_LEARNING)
 		br_fdb_update(br, p, eth_hdr(skb)->h_source, vid, 0);
 
-	promisc = !!(br->dev->flags & IFF_PROMISC);
-	local_rcv = promisc;
-
+	local_rcv = !!(br->dev->flags & IFF_PROMISC);
 	if (is_multicast_ether_addr(eth_hdr(skb)->h_dest)) {
 		/* by definition the broadcast is also a multicast address */
 		if (is_broadcast_ether_addr(eth_hdr(skb)->h_dest)) {
@@ -205,7 +173,7 @@ int br_handle_frame_finish(struct net *net, struct sock *sk, struct sk_buff *skb
 		unsigned long now = jiffies;
 
 		if (test_bit(BR_FDB_LOCAL, &dst->flags))
-			return br_pass_frame_up(skb, false);
+			return br_pass_frame_up(skb);
 
 		if (now != dst->used)
 			dst->used = now;
@@ -218,7 +186,7 @@ int br_handle_frame_finish(struct net *net, struct sock *sk, struct sk_buff *skb
 	}
 
 	if (local_rcv)
-		return br_pass_frame_up(skb, promisc);
+		return br_pass_frame_up(skb);
 
 out:
 	return 0;
@@ -244,6 +212,7 @@ static void __br_handle_local_finish(struct sk_buff *skb)
 /* note: already called with rcu_read_lock */
 static int br_handle_local_finish(struct net *net, struct sock *sk, struct sk_buff *skb)
 {
+	//struct net_bridge_port *p = br_port_get_rcu(skb->dev);
 	__br_handle_local_finish(skb);
 
 	/* return 1 to signal the okfn() was called so it's ok to use the skb */
@@ -327,24 +296,66 @@ static rx_handler_result_t br_handle_frame(struct sk_buff **pskb)
 	struct net_bridge_port *p;
 	struct sk_buff *skb = *pskb;
 	const unsigned char *dest = eth_hdr(skb)->h_dest;
-
+	br_should_route_hook_t *rhook;
+#ifndef CONFIG_BRIDGE_CREDIT_MODE
 	if (unlikely(skb->pkt_type == PACKET_LOOPBACK))
 		return RX_HANDLER_PASS;
+#else
+	if (unlikely(skb->pkt_type == PACKET_LOOPBACK)) {
+		printk(KERN_DEBUG "packet:loopback.\n");
+		return RX_HANDLER_PASS;
+	}
+#endif
 
+#ifndef CONFIG_BRIDGE_CREDIT_MODE
 	if (!is_valid_ether_addr(eth_hdr(skb)->h_source))
 		goto drop;
-
+#else
+	if (!is_valid_ether_addr(eth_hdr(skb)->h_source)) {
+		printk(KERN_DEBUG "packet:not valid ethernet address.\n");
+		goto drop;
+	}
+#endif
 	skb = skb_share_check(skb, GFP_ATOMIC);
+#ifndef CONFIG_BRIDGE_CREDIT_MODE
 	if (!skb)
 		return RX_HANDLER_CONSUMED;
+#else
+	if (!skb) {
+		printk(KERN_DEBUG "packet:no skb.\n");
+		return RX_HANDLER_CONSUMED;
+	}
+#endif
 
 	memset(skb->cb, 0, sizeof(struct br_input_skb_cb));
-	br_tc_skb_miss_set(skb, false);
 
 	p = br_port_get_rcu(skb->dev);
-	if (p->flags & BR_VLAN_TUNNEL)
-		br_handle_ingress_vlan_tunnel(skb, p, nbp_vlan_group_rcu(p));
-
+#ifndef CONFIG_BRIDGE_CREDIT_MODE
+	// len: all bytes of original packet
+	// data_len : each skb's packet bytes
+	if (!br_pay_credit(p, skb->data_len, skb->len, skb->data_len)) {
+		printk(KERN_DEBUG "packet:pay fail.\n");
+		goto drop;
+	if((*fp_pay)!=NULL){
+		if(!fp_pay(p->vif,skb)){
+			//printk(KERN_DEBUG "packet:pay fail.\n");
+			goto drop;
+		}
+	}
+#endif
+	
+	if (p->flags & BR_VLAN_TUNNEL) {
+#ifndef CONFIG_BRIDGE_CREDIT_MODE
+	if (br_handle_ingress_vlan_tunnel(skb, p, nbp_vlan_group_rcu(p)))
+			goto drop;
+#else
+	if (br_handle_ingress_vlan_tunnel(skb, p,
+						  nbp_vlan_group_rcu(p))) {
+			printk(KERN_DEBUG "packet:ingress vlan tunnel set.\n");
+			goto drop;
+		}
+#endif
+	}
 	if (unlikely(is_link_local_ether_addr(dest))) {
 		u16 fwd_mask = p->br->group_fwd_mask_required;
 
@@ -366,33 +377,68 @@ static rx_handler_result_t br_handle_frame(struct sk_buff **pskb)
 		case 0x00:	/* Bridge Group Address */
 			/* If STP is turned off,
 			   then must forward to keep loop detection */
+#ifndef CONFIG_BRIDGE_CREDIT_MODE
 			if (p->br->stp_enabled == BR_NO_STP ||
 			    fwd_mask & (1u << dest[5]))
 				goto forward;
+#else
+			if (p->br->stp_enabled == BR_NO_STP ||
+			    fwd_mask & (1u << dest[5])) {
+				printk(KERN_DEBUG "packet:no STP or cut by fwd mask.\n");
+				goto forward;
+			}
+#endif
 			*pskb = skb;
 			__br_handle_local_finish(skb);
+#ifdef CONFIG_BRIDGE_CREDIT_MODE
+			printk(KERN_DEBUG "packet:Bridge Group Address.\n");
+#endif
 			return RX_HANDLER_PASS;
 
 		case 0x01:	/* IEEE MAC (Pause) */
+#ifdef CONFIG_BRIDGE_CREDIT_MODE
+			printk(KERN_DEBUG "packet:Pause packet.\n");
+#endif
 			goto drop;
 
 		case 0x0E:	/* 802.1AB LLDP */
 			fwd_mask |= p->br->group_fwd_mask;
+#ifndef CONFIG_BRIDGE_CREDIT_MODE
 			if (fwd_mask & (1u << dest[5]))
 				goto forward;
+#else
+			if (fwd_mask & (1u << dest[5])) {
+				printk(KERN_DEBUG "packet:lldp cut by fwd mask.\n");
+				goto forward;
+			}
+#endif
 			*pskb = skb;
 			__br_handle_local_finish(skb);
+#ifdef CONFIG_BRIDGE_CREDIT_MODE
+			printk(KERN_DEBUG "packet:LLDP.\n");
+#endif
 			return RX_HANDLER_PASS;
 
 		default:
 			/* Allow selective forwarding for most other protocols */
+#ifdef CONFIG_BRIDGE_CREDIT_MODE
+			printk(KERN_DEBUG "packet:Allow selective forwarding for most other protocols.\n");
+#endif
 			fwd_mask |= p->br->group_fwd_mask;
+#ifndef CONFIG_BRIDGE_CREDIT_MODE
 			if (fwd_mask & (1u << dest[5]))
 				goto forward;
+		
+#else
+			if (fwd_mask & (1u << dest[5])) {
+				printk(KERN_DEBUG "packet:default cut by fwd mask.\n");
+				goto forward;
+			}
+#endif
 		}
-
-		BR_INPUT_SKB_CB(skb)->promisc = false;
-
+#ifdef CONFIG_BRIDGE_CREDIT_MODE
+		printk(KERN_DEBUG "packet:local finish.\n");
+#endif
 		/* The else clause should be hit when nf_hook():
 		 *   - returns < 0 (drop/error)
 		 *   - returns = 0 (stolen/nf_queue)
@@ -411,16 +457,42 @@ static rx_handler_result_t br_handle_frame(struct sk_buff **pskb)
 		return RX_HANDLER_PASS;
 
 forward:
-	if (br_mst_is_enabled(p->br))
-		goto defer_stp_filtering;
-
 	switch (p->state) {
 	case BR_STATE_FORWARDING:
+		rhook = rcu_dereference(br_should_route_hook);
+#ifdef CONFIG_BRIDGE_CREDIT_MODE
+		printk(KERN_DEBUG "packet:forwarding state.\n");
+#endif
+		if (rhook) {
+#ifdef CONFIG_BRIDGE_CREDIT_MODE
+			printk(KERN_DEBUG "packet:rhook exist.\n");
+#endif
+			if ((*rhook)(skb)) {
+#ifdef CONFIG_BRIDGE_CREDIT_MODE
+				printk(KERN_DEBUG "packet:rhook skb function exist.\n");
+#endif
+				*pskb = skb;
+				return RX_HANDLER_PASS;
+			}
+			dest = eth_hdr(skb)->h_dest;
+		}
 	case BR_STATE_LEARNING:
-defer_stp_filtering:
+#ifdef CONFIG_BRIDGE_CREDIT_MODE
+		printk(KERN_DEBUG "packet:learning state.\n");
+#endif
+#ifndef CONFIG_BRIDGE_CREDIT_MODE
 		if (ether_addr_equal(p->br->dev->dev_addr, dest))
 			skb->pkt_type = PACKET_HOST;
+#else
+		if (ether_addr_equal(p->br->dev->dev_addr, dest)) {
+			printk(KERN_DEBUG "packet:ehter addr equal.\n");
+			skb->pkt_type = PACKET_HOST;
+		}
+#endif
 
+#ifdef CONFIG_BRIDGE_CREDIT_MODE
+		printk(KERN_DEBUG "packet:handle frame finish.\n");
+#endif
 		return nf_hook_bridge_pre(skb, pskb);
 	default:
 drop:

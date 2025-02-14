@@ -26,6 +26,14 @@
 
 #include "br_private.h"
 
+#ifdef CONFIG_BRIDGE_CREDIT_MODE//minkoo
+//LIST_HEAD(off_list);
+//EXPORT_SYMBOL(off_list);
+void (*fp_newvif)(struct net_bridge_port *p);
+void (*fp_delvif)(struct net_bridge_port *p);
+EXPORT_SYMBOL(fp_newvif);
+EXPORT_SYMBOL(fp_delvif);
+#endif
 /*
  * Determine initial path cost based on speed.
  * using recommendations from 802.1d standard
@@ -40,21 +48,12 @@ static int port_cost(struct net_device *dev)
 		switch (ecmd.base.speed) {
 		case SPEED_10000:
 			return 2;
-		case SPEED_5000:
-			return 3;
-		case SPEED_2500:
-			return 4;
 		case SPEED_1000:
-			return 5;
+			return 4;
 		case SPEED_100:
 			return 19;
 		case SPEED_10:
 			return 100;
-		case SPEED_UNKNOWN:
-			return 100;
-		default:
-			if (ecmd.base.speed > SPEED_10000)
-				return 1;
 		}
 	}
 
@@ -270,7 +269,7 @@ static void brport_get_ownership(const struct kobject *kobj, kuid_t *uid, kgid_t
 	net_ns_get_ownership(dev_net(p->dev), uid, gid);
 }
 
-static const struct kobj_type brport_ktype = {
+static struct kobj_type brport_ktype = {
 #ifdef CONFIG_SYSFS
 	.sysfs_ops = &brport_sysfs_ops,
 #endif
@@ -284,7 +283,7 @@ static void destroy_nbp(struct net_bridge_port *p)
 
 	p->br = NULL;
 	p->dev = NULL;
-	netdev_put(dev, &p->dev_tracker);
+	dev_put(dev);
 
 	kobject_put(&p->kobj);
 }
@@ -334,7 +333,9 @@ static void del_nbp(struct net_bridge_port *p)
 {
 	struct net_bridge *br = p->br;
 	struct net_device *dev = p->dev;
-
+#ifdef CONFIG_BRIDGE_CREDIT_MODE
+	struct bridge_credit_allocator *bca = p->br->bca;
+#endif
 	sysfs_remove_link(br->ifobj, p->dev->name);
 
 	nbp_delete_promisc(p);
@@ -374,6 +375,20 @@ static void del_nbp(struct net_bridge_port *p)
 	br_netpoll_disable(p);
 
 	call_rcu(&p->rcu, destroy_nbp_rcu);
+#ifdef CONFIG_BRIDGE_CREDIT_MODE
+	if((*fp_delvif)!=NULL){
+		printk(KERN_DEBUG "MINKOO: del vif%d\n", p->vif->id);
+		fp_delvif(p);
+	}
+	if(bca==NULL) {
+		printk(KERN_DEBUG "no bca detected during port deletion\n");
+	}
+	//spin_lock_bh(&bca->credit_port_list_lock);
+	list_del(&p->cp_list);
+	//spin_unlock_bh(&bca->credit_port_list_lock);
+	bca->total_weight -= p->weight;
+	bca->credit_port_num--;
+#endif
 }
 
 /* Delete bridge device */
@@ -407,10 +422,10 @@ static int find_portno(struct net_bridge *br)
 	if (!inuse)
 		return -ENOMEM;
 
-	__set_bit(0, inuse);	/* zero is reserved */
-	list_for_each_entry(p, &br->port_list, list)
-		__set_bit(p->port_no, inuse);
-
+	set_bit(0, inuse);	/* zero is reserved */
+	list_for_each_entry(p, &br->port_list, list) {
+		set_bit(p->port_no, inuse);
+	}
 	index = find_first_zero_bit(inuse, BR_MAX_PORTS);
 	bitmap_free(inuse);
 
@@ -423,7 +438,15 @@ static struct net_bridge_port *new_nbp(struct net_bridge *br,
 {
 	struct net_bridge_port *p;
 	int index, err;
-
+//modified
+#ifdef CONFIG_BRIDGE_CREDIT_MODE
+	struct bridge_credit_allocator *bca;
+	bca = br->bca;
+	if (list_empty(&br->port_list)) {
+		printk(KERN_DEBUG "br port start from empty\n");
+	}
+#endif
+//*****
 	index = find_portno(br);
 	if (index < 0)
 		return ERR_PTR(index);
@@ -431,9 +454,21 @@ static struct net_bridge_port *new_nbp(struct net_bridge *br,
 	p = kzalloc(sizeof(*p), GFP_KERNEL);
 	if (p == NULL)
 		return ERR_PTR(-ENOMEM);
-
+	if((*fp_newvif)!=NULL){
+		fp_newvif(p);
+	}
+		//modified
+#ifdef CONFIG_BRIDGE_CREDIT_MODE
+	// separated because if need to send packet for init?
+	// 1. assign members inside the target
+	p->remaining_credit = ~0U;
+	p->min_credit = 0;		// arbitrary(not set)
+	p->max_credit = 0;		// arbitrary(not set)
+	p->weight = 1;			// arbitrary
+#endif
+//*****
 	p->br = br;
-	netdev_hold(dev, &p->dev_tracker, GFP_KERNEL);
+	dev_hold(dev);
 	p->dev = dev;
 	p->path_cost = port_cost(dev);
 	p->priority = 0x8000 >> BR_PORT_BITS;
@@ -443,12 +478,44 @@ static struct net_bridge_port *new_nbp(struct net_bridge *br,
 	br_set_state(p, BR_STATE_DISABLED);
 	br_stp_port_timer_init(p);
 	err = br_multicast_add_port(p);
+//modified
+#ifndef CONFIG_BRIDGE_CREDIT_MODE
 	if (err) {
-		netdev_put(dev, &p->dev_tracker);
+		dev_put(dev);
 		kfree(p);
 		p = ERR_PTR(err);
 	}
-
+#else
+	if (err) {
+		dev_put(dev);
+		kfree(p);
+		p = ERR_PTR(err);
+	} else {
+		if(bca==NULL) {
+			printk(KERN_DEBUG "no bca detected during port addition\n");
+			printk(KERN_DEBUG "bca creation start\n");
+			err = add_bca(br);
+			if (err) {
+				dev_put(dev);
+				kfree(p);
+				return ERR_PTR(-ENOMEM);
+			}
+			bca = br->bca;
+		}
+		/* testing purpose */
+		p->weight = bca->credit_port_num + 1;
+		/*
+		if(p->weight == 1) p->min_credit = 1875000;
+		if(p->weight == 3) p->max_credit = 1875000;
+		*/
+		//spin_lock_bh(&bca->credit_port_list_lock);
+		list_add(&p->cp_list, &bca->credit_port_list);
+		//spin_unlock_bh(&bca->credit_port_list_lock);
+		bca->total_weight += p->weight;
+		bca->credit_port_num++;
+	}
+#endif
+//*****
 	return p;
 }
 
@@ -476,12 +543,16 @@ int br_del_bridge(struct net *net, const char *name)
 {
 	struct net_device *dev;
 	int ret = 0;
-
+	
+	//modified
+	rtnl_lock();
+	//*****
+	
 	dev = __dev_get_by_name(net, name);
 	if (dev == NULL)
 		ret =  -ENXIO; 	/* Could not find device */
 
-	else if (!netif_is_bridge_master(dev)) {
+	else if (!(dev->priv_flags & IFF_EBRIDGE)) {
 		/* Attempt to delete non bridge device! */
 		ret = -EPERM;
 	}
@@ -494,6 +565,9 @@ int br_del_bridge(struct net *net, const char *name)
 	else
 		br_dev_delete(dev, NULL);
 
+	//modified
+	rtnl_unlock();
+	//*****
 	return ret;
 }
 
@@ -527,16 +601,16 @@ void br_mtu_auto_adjust(struct net_bridge *br)
 
 static void br_set_gso_limits(struct net_bridge *br)
 {
-	unsigned int tso_max_size = TSO_MAX_SIZE;
+	unsigned int gso_max_size = GSO_MAX_SIZE;
+	u16 gso_max_segs = GSO_MAX_SEGS;
 	const struct net_bridge_port *p;
-	u16 tso_max_segs = TSO_MAX_SEGS;
 
 	list_for_each_entry(p, &br->port_list, list) {
-		tso_max_size = min(tso_max_size, p->dev->tso_max_size);
-		tso_max_segs = min(tso_max_segs, p->dev->tso_max_segs);
+		gso_max_size = min(gso_max_size, p->dev->gso_max_size);
+		gso_max_segs = min(gso_max_segs, p->dev->gso_max_segs);
 	}
-	netif_set_tso_max_size(br->dev, tso_max_size);
-	netif_set_tso_max_segs(br->dev, tso_max_segs);
+	br->dev->gso_max_size = gso_max_size;
+	br->dev->gso_max_segs = gso_max_segs;
 }
 
 /*
@@ -578,6 +652,26 @@ int br_add_if(struct net_bridge *br, struct net_device *dev,
 	    !is_valid_ether_addr(dev->dev_addr))
 		return -EINVAL;
 
+	/* Also don't allow bridging of net devices that are DSA masters, since
+	 * the bridge layer rx_handler prevents the DSA fake ethertype handler
+	 * to be invoked, so we don't get the chance to strip off and parse the
+	 * DSA switch tag protocol header (the bridge layer just returns
+	 * RX_HANDLER_CONSUMED, stopping RX processing for these frames).
+	 * The only case where that would not be an issue is when bridging can
+	 * already be offloaded, such as when the DSA master is itself a DSA
+	 * or plain switchdev port, and is bridged only with other ports from
+	 * the same hardware device.
+	 */
+	if (netdev_uses_dsa(dev)) {
+		list_for_each_entry(p, &br->port_list, list) {
+			if (!netdev_port_same_parent_id(dev, p->dev)) {
+				NL_SET_ERR_MSG(extack,
+					       "Cannot do software bridging with a DSA master");
+				return -EINVAL;
+			}
+		}
+	}
+	
 	/* No bridging of bridges */
 	if (dev->netdev_ops->ndo_start_xmit == br_dev_xmit) {
 		NL_SET_ERR_MSG(extack,
@@ -605,7 +699,6 @@ int br_add_if(struct net_bridge *br, struct net_device *dev,
 	err = dev_set_allmulti(dev, 1);
 	if (err) {
 		br_multicast_del_port(p);
-		netdev_put(dev, &p->dev_tracker);
 		kfree(p);	/* kobject not yet init'd, manually free */
 		goto err1;
 	}
@@ -715,10 +808,10 @@ err3:
 	sysfs_remove_link(br->ifobj, p->dev->name);
 err2:
 	br_multicast_del_port(p);
-	netdev_put(dev, &p->dev_tracker);
 	kobject_put(&p->kobj);
 	dev_set_allmulti(dev, -1);
 err1:
+	dev_put(dev);
 	return err;
 }
 
@@ -760,7 +853,7 @@ void br_port_flags_change(struct net_bridge_port *p, unsigned long mask)
 	if (mask & BR_AUTO_MASK)
 		nbp_update_port_count(br);
 
-	if (mask & (BR_NEIGH_SUPPRESS | BR_NEIGH_VLAN_SUPPRESS))
+	if (mask & BR_NEIGH_SUPPRESS)
 		br_recalculate_neigh_suppress_enabled(br);
 }
 

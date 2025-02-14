@@ -70,6 +70,8 @@ void brioctl_set(int (*hook)(struct net *net, struct net_bridge *br,
 			     void __user *uarg));
 int br_ioctl_call(struct net *net, struct net_bridge *br, unsigned int cmd,
 		  struct ifreq *ifr, void __user *uarg);
+typedef int br_should_route_hook_t(struct sk_buff *skb);
+extern br_should_route_hook_t __rcu *br_should_route_hook;
 
 #if IS_ENABLED(CONFIG_BRIDGE) && IS_ENABLED(CONFIG_BRIDGE_IGMP_SNOOPING)
 int br_multicast_list_adjacent(struct net_device *dev,
