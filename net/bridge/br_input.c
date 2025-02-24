@@ -330,15 +330,15 @@ static rx_handler_result_t br_handle_frame(struct sk_buff **pskb)
 	memset(skb->cb, 0, sizeof(struct br_input_skb_cb));
 
 	p = br_port_get_rcu(skb->dev);
-#ifndef CONFIG_BRIDGE_CREDIT_MODE
+#ifdef CONFIG_BRIDGE_CREDIT_MODE
 	// len: all bytes of original packet
 	// data_len : each skb's packet bytes
-	if (!br_pay_credit(p, skb->data_len, skb->len, skb->data_len)) {
-		printk(KERN_DEBUG "packet:pay fail.\n");
-		goto drop;
+	//if (!br_pay_credit(p, skb->data_len, skb->len, skb->data_len)) {
+		//printk(KERN_DEBUG "packet:pay fail.\n");
+		//goto drop;
 	if((*fp_pay)!=NULL){
 		if(!fp_pay(p->vif,skb)){
-			//printk(KERN_DEBUG "packet:pay fail.\n");
+			printk(KERN_DEBUG "packet:pay fail.\n");
 			goto drop;
 		}
 	}

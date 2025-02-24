@@ -27,8 +27,8 @@
 #include "br_private.h"
 
 #ifdef CONFIG_BRIDGE_CREDIT_MODE//minkoo
-LIST_HEAD(off_list);
-EXPORT_SYMBOL(off_list);
+//LIST_HEAD(off_list);
+//EXPORT_SYMBOL(off_list);
 void (*fp_newvif)(struct net_bridge_port *p);
 void (*fp_delvif)(struct net_bridge_port *p);
 EXPORT_SYMBOL(fp_newvif);
@@ -380,6 +380,11 @@ static void del_nbp(struct net_bridge_port *p)
 		printk(KERN_DEBUG "MINKOO: del vif%d\n", p->vif->id);
 		fp_delvif(p);
 	}
+	//else{
+	//	printk(KERN_DEBUG "MINKOO: delvif is NULL\n");
+	//	list_del(&p->vif->off_list);
+	//}
+	//kfree(p->vif);
 	if(bca==NULL) {
 		printk(KERN_DEBUG "no bca detected during port deletion\n");
 	}
@@ -397,10 +402,19 @@ void br_dev_delete(struct net_device *dev, struct list_head *head)
 	struct net_bridge *br = netdev_priv(dev);
 	struct net_bridge_port *p, *n;
 
+#ifdef CONFIG_BRIDGE_CREDIT_MODE
+	struct bridge_credit_allocator *bca = br->bca;
+#endif
 	list_for_each_entry_safe(p, n, &br->port_list, list) {
 		del_nbp(p);
 	}
-
+#ifdef CONFIG_BRIDGE_CREDIT_MODE
+#ifdef CONFIG_BRIDGE_CREDIT_MODE_NO_TIMER_TEST
+	del_bca(bca);
+#else
+	disable_bca(bca);
+#endif
+#endif
 	br_recalculate_neigh_suppress_enabled(br);
 
 	br_fdb_delete_by_port(br, NULL, 0, 1);
@@ -438,7 +452,7 @@ static struct net_bridge_port *new_nbp(struct net_bridge *br,
 {
 	struct net_bridge_port *p;
 	int index, err;
-//modified
+//modifiedi
 #ifdef CONFIG_BRIDGE_CREDIT_MODE
 	struct bridge_credit_allocator *bca;
 	bca = br->bca;
@@ -454,17 +468,21 @@ static struct net_bridge_port *new_nbp(struct net_bridge *br,
 	p = kzalloc(sizeof(*p), GFP_KERNEL);
 	if (p == NULL)
 		return ERR_PTR(-ENOMEM);
-	struct ancs_container *vif;
-        vif = kmalloc(sizeof(struct ancs_container), GFP_KERNEL | __GFP_NOWARN | NF_REPEAT);
-	vif->p = p;
-        p->vif=vif;  
+#ifdef CONFIG_BRIDGE_CREDIT_MODE
+	//struct ancs_container *vif;
+        //vif = kmalloc(sizeof(struct ancs_container), GFP_KERNEL | __GFP_NOWARN | NF_REPEAT);
+	//vif->p = p;
+        //p->vif=vif;  
 	if((*fp_newvif)!=NULL){
+		printk(KERN_INFO "MINKOO: fp_newvif is set, calling new_vif\n");
 		fp_newvif(p);
 	}
 	else{
-		INIT_LIST_HEAD(&p->vif->off_list);
-		list_add(&p->vif->off_list, &off_list);
+		printk(KERN_ERR "MINKOO: fp_newvif is NULL! vif not created.\n");
+		//INIT_LIST_HEAD(&p->vif->off_list);
+		//list_add(&p->vif->off_list, &off_list);
 	}
+#endif
 		//modified
 #ifdef CONFIG_BRIDGE_CREDIT_MODE
 	// separated because if need to send packet for init?
@@ -510,6 +528,7 @@ static struct net_bridge_port *new_nbp(struct net_bridge *br,
 			}
 			bca = br->bca;
 		}
+		
 		/* testing purpose */
 		p->weight = bca->credit_port_num + 1;
 		/*
@@ -552,10 +571,6 @@ int br_del_bridge(struct net *net, const char *name)
 	struct net_device *dev;
 	int ret = 0;
 	
-	//modified
-	rtnl_lock();
-	//*****
-	
 	dev = __dev_get_by_name(net, name);
 	if (dev == NULL)
 		ret =  -ENXIO; 	/* Could not find device */
@@ -573,9 +588,6 @@ int br_del_bridge(struct net *net, const char *name)
 	else
 		br_dev_delete(dev, NULL);
 
-	//modified
-	rtnl_unlock();
-	//*****
 	return ret;
 }
 

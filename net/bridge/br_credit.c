@@ -72,8 +72,8 @@ static void calc_credit(struct timer_list *t) {
         /* get bca from bca_pointer by type casting
          * assume that bca is not freed, because there is no way to delete without this function
          */
-        //bca = (struct bridge_credit_allocator *)bca_pointer;
-        bca = from_timer(bca, t, credit_timer);
+        bca = (struct bridge_credit_allocator *)bca_pointer;
+        //bca = from_timer(bca, t, credit_timer);
         if (bca == NULL) {
                 printk(KERN_DEBUG "BCA NULL");
                 return;

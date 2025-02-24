@@ -17346,7 +17346,6 @@
 0x37828c97	br_dev_queue_push_xmit	net/bridge/bridge	EXPORT_SYMBOL_GPL	
 0x086a948a	br_forward_finish	net/bridge/bridge	EXPORT_SYMBOL_GPL	
 0x31f462a1	br_forward	net/bridge/bridge	EXPORT_SYMBOL_GPL	
-0xe3ed1c5f	off_list	net/bridge/bridge	EXPORT_SYMBOL	
 0x82d04205	fp_newvif	net/bridge/bridge	EXPORT_SYMBOL	
 0x048e6508	fp_delvif	net/bridge/bridge	EXPORT_SYMBOL	
 0x12fbb255	br_port_flag_is_set	net/bridge/bridge	EXPORT_SYMBOL_GPL	

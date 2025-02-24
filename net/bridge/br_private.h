@@ -52,7 +52,9 @@ enum {
 /* Path to usermode spanning tree program */
 #define BR_STP_PROG	"/sbin/bridge-stp"
 #define CONFIG_BRIDGE_CREDIT_MODE//minkoo
+#define CONFIG_BRIDGE_CREDIT_MODE_NO_TIMER_TEST
 #ifdef CONFIG_BRIDGE_CREDIT_MODE
+#define MAX_CREDIT 18800000
 struct ancs_container{
 	struct list_head vif_list;
 	bool need_reschedule;
@@ -67,12 +69,6 @@ struct ancs_container{
 };
 #endif
 #define BR_FDB_NOTIFY_SETTABLE_BITS (FDB_NOTIFY_BIT | FDB_NOTIFY_INACTIVE_BIT)
-
-#define CONFIG_BRIDGE_CREDIT_MODE
-#define CONFIG_BRIDGE_CREDIT_MODE_NO_TIMER_TEST
-#ifdef CONFIG_BRIDGE_CREDIT_MODE
-#define MAX_CREDIT 5000000
-#endif
 
 typedef struct bridge_id bridge_id;
 typedef struct mac_addr mac_addr;
@@ -2309,18 +2305,18 @@ static inline void br_switchdev_init(struct net_bridge *br)
 
 #ifdef CONFIG_BRIDGE_CREDIT_MODE
 /* br_credit.c */
-#define BR_CREDIT_PAY_FAIL		0
+#define BR_CREDIT_PAY_FAIL	0
 #define BR_CREDIT_PAY_SUCCESS	1
 
 struct bridge_credit_allocator {
 	struct net_bridge		*br;
 	struct list_head		credit_port_list;
-	spinlock_t				credit_port_list_lock;
+	spinlock_t			credit_port_list_lock;
 	struct timer_list		credit_timer;
 
 	unsigned int			total_weight;
 	unsigned int			credit_balance;
-	int						credit_port_num;
+	int				credit_port_num;
 };
 
 int add_bca(struct net_bridge *br);
