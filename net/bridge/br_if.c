@@ -27,8 +27,8 @@
 #include "br_private.h"
 
 #ifdef CONFIG_BRIDGE_CREDIT_MODE//minkoo
-//LIST_HEAD(off_list);
-//EXPORT_SYMBOL(off_list);
+LIST_HEAD(off_list);
+EXPORT_SYMBOL(off_list);
 void (*fp_newvif)(struct net_bridge_port *p);
 void (*fp_delvif)(struct net_bridge_port *p);
 EXPORT_SYMBOL(fp_newvif);
@@ -333,9 +333,7 @@ static void del_nbp(struct net_bridge_port *p)
 {
 	struct net_bridge *br = p->br;
 	struct net_device *dev = p->dev;
-#ifdef CONFIG_BRIDGE_CREDIT_MODE
-	struct bridge_credit_allocator *bca = p->br->bca;
-#endif
+
 	sysfs_remove_link(br->ifobj, p->dev->name);
 
 	nbp_delete_promisc(p);
@@ -380,19 +378,11 @@ static void del_nbp(struct net_bridge_port *p)
 		printk(KERN_DEBUG "MINKOO: del vif%d\n", p->vif->id);
 		fp_delvif(p);
 	}
-	//else{
-	//	printk(KERN_DEBUG "MINKOO: delvif is NULL\n");
-	//	list_del(&p->vif->off_list);
-	//}
-	//kfree(p->vif);
-	if(bca==NULL) {
-		printk(KERN_DEBUG "no bca detected during port deletion\n");
+	else{
+		printk(KERN_DEBUG "MINKOO: delvif is NULL\n");
+		list_del(&p->vif->off_list);
 	}
-	//spin_lock_bh(&bca->credit_port_list_lock);
-	list_del(&p->cp_list);
-	//spin_unlock_bh(&bca->credit_port_list_lock);
-	bca->total_weight -= p->weight;
-	bca->credit_port_num--;
+	kfree(p->vif);
 #endif
 }
 
@@ -402,19 +392,10 @@ void br_dev_delete(struct net_device *dev, struct list_head *head)
 	struct net_bridge *br = netdev_priv(dev);
 	struct net_bridge_port *p, *n;
 
-#ifdef CONFIG_BRIDGE_CREDIT_MODE
-	struct bridge_credit_allocator *bca = br->bca;
-#endif
 	list_for_each_entry_safe(p, n, &br->port_list, list) {
 		del_nbp(p);
 	}
-#ifdef CONFIG_BRIDGE_CREDIT_MODE
-#ifdef CONFIG_BRIDGE_CREDIT_MODE_NO_TIMER_TEST
-	del_bca(bca);
-#else
-	disable_bca(bca);
-#endif
-#endif
+
 	br_recalculate_neigh_suppress_enabled(br);
 
 	br_fdb_delete_by_port(br, NULL, 0, 1);
@@ -452,15 +433,7 @@ static struct net_bridge_port *new_nbp(struct net_bridge *br,
 {
 	struct net_bridge_port *p;
 	int index, err;
-//modifiedi
-#ifdef CONFIG_BRIDGE_CREDIT_MODE
-	struct bridge_credit_allocator *bca;
-	bca = br->bca;
-	if (list_empty(&br->port_list)) {
-		printk(KERN_DEBUG "br port start from empty\n");
-	}
-#endif
-//*****
+	
 	index = find_portno(br);
 	if (index < 0)
 		return ERR_PTR(index);
@@ -469,30 +442,21 @@ static struct net_bridge_port *new_nbp(struct net_bridge *br,
 	if (p == NULL)
 		return ERR_PTR(-ENOMEM);
 #ifdef CONFIG_BRIDGE_CREDIT_MODE
-	//struct ancs_container *vif;
-        //vif = kmalloc(sizeof(struct ancs_container), GFP_KERNEL | __GFP_NOWARN | NF_REPEAT);
-	//vif->p = p;
-        //p->vif=vif;  
+	struct ancs_container *vif;
+        vif = kmalloc(sizeof(struct ancs_container), GFP_KERNEL | __GFP_NOWARN | NF_REPEAT);
+	vif->p = p;
+        p->vif=vif;  
 	if((*fp_newvif)!=NULL){
 		printk(KERN_INFO "MINKOO: fp_newvif is set, calling new_vif\n");
 		fp_newvif(p);
 	}
 	else{
 		printk(KERN_ERR "MINKOO: fp_newvif is NULL! vif not created.\n");
-		//INIT_LIST_HEAD(&p->vif->off_list);
-		//list_add(&p->vif->off_list, &off_list);
+		INIT_LIST_HEAD(&p->vif->off_list);
+		list_add(&p->vif->off_list, &off_list);
 	}
 #endif
-		//modified
-#ifdef CONFIG_BRIDGE_CREDIT_MODE
-	// separated because if need to send packet for init?
-	// 1. assign members inside the target
-	p->remaining_credit = ~0U;
-	p->min_credit = 0;		// arbitrary(not set)
-	p->max_credit = 0;		// arbitrary(not set)
-	p->weight = 1;			// arbitrary
-#endif
-//*****
+
 	p->br = br;
 	dev_hold(dev);
 	p->dev = dev;
@@ -504,45 +468,11 @@ static struct net_bridge_port *new_nbp(struct net_bridge *br,
 	br_set_state(p, BR_STATE_DISABLED);
 	br_stp_port_timer_init(p);
 	err = br_multicast_add_port(p);
-//modified
-#ifndef CONFIG_BRIDGE_CREDIT_MODE
 	if (err) {
-		dev_put(dev);
+		netdev_put(dev, &p->dev_tracker);
 		kfree(p);
 		p = ERR_PTR(err);
 	}
-#else
-	if (err) {
-		dev_put(dev);
-		kfree(p);
-		p = ERR_PTR(err);
-	} else {
-		if(bca==NULL) {
-			printk(KERN_DEBUG "no bca detected during port addition\n");
-			printk(KERN_DEBUG "bca creation start\n");
-			err = add_bca(br);
-			if (err) {
-				dev_put(dev);
-				kfree(p);
-				return ERR_PTR(-ENOMEM);
-			}
-			bca = br->bca;
-		}
-		
-		/* testing purpose */
-		p->weight = bca->credit_port_num + 1;
-		/*
-		if(p->weight == 1) p->min_credit = 1875000;
-		if(p->weight == 3) p->max_credit = 1875000;
-		*/
-		//spin_lock_bh(&bca->credit_port_list_lock);
-		list_add(&p->cp_list, &bca->credit_port_list);
-		//spin_unlock_bh(&bca->credit_port_list_lock);
-		bca->total_weight += p->weight;
-		bca->credit_port_num++;
-	}
-#endif
-//*****
 	return p;
 }
 
