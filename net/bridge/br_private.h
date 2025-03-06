@@ -52,9 +52,7 @@ enum {
 /* Path to usermode spanning tree program */
 #define BR_STP_PROG	"/sbin/bridge-stp"
 #define CONFIG_BRIDGE_CREDIT_MODE//minkoo
-#define CONFIG_BRIDGE_CREDIT_MODE_NO_TIMER_TEST
 #ifdef CONFIG_BRIDGE_CREDIT_MODE
-#define MAX_CREDIT 18800000
 struct ancs_container{
 	struct list_head vif_list;
 	bool need_reschedule;
@@ -396,11 +394,6 @@ struct net_bridge_port {
 	struct net_bridge		*br;
 	struct net_device		*dev;
 #ifdef CONFIG_BRIDGE_CREDIT_MODE
-	struct list_head		cp_list;
-	unsigned int			remaining_credit;
-	unsigned int			min_credit;
-	unsigned int			max_credit;
-	unsigned int			weight;
 	struct ancs_container		*vif;
 #endif
 	netdevice_tracker		dev_tracker;
@@ -512,9 +505,7 @@ struct net_bridge {
 	spinlock_t			hash_lock;
 	struct hlist_head		frame_type_list;
 	struct net_device		*dev;
-#ifdef CONFIG_BRIDGE_CREDIT_MODE
-	struct bridge_credit_allocator	*bca;
-#endif
+
 	unsigned long			options;
 	/* These fields are accessed on each packet */
 #ifdef CONFIG_BRIDGE_VLAN_FILTERING
@@ -2303,32 +2294,6 @@ static inline void br_switchdev_init(struct net_bridge *br)
 
 #endif /* CONFIG_NET_SWITCHDEV */
 
-#ifdef CONFIG_BRIDGE_CREDIT_MODE
-/* br_credit.c */
-#define BR_CREDIT_PAY_FAIL	0
-#define BR_CREDIT_PAY_SUCCESS	1
-
-struct bridge_credit_allocator {
-	struct net_bridge		*br;
-	struct list_head		credit_port_list;
-	spinlock_t			credit_port_list_lock;
-	struct timer_list		credit_timer;
-
-	unsigned int			total_weight;
-	unsigned int			credit_balance;
-	int				credit_port_num;
-};
-
-int add_bca(struct net_bridge *br);
-// when removing bridge, just disable bca, the actual deletion of bca is during timer function.
-void disable_bca(struct bridge_credit_allocator *bca);
-// actual deletion of bca
-void del_bca(struct bridge_credit_allocator *bca);
-// t1, t2 is added for testing purpose
-int br_pay_credit(struct net_bridge_port *p, unsigned int packet_data_size, unsigned int t1, unsigned int t2);
-
-static void calc_credit(struct timer_list *t);
-#endif
 
 /* br_arp_nd_proxy.c */
 void br_recalculate_neigh_suppress_enabled(struct net_bridge *br);
