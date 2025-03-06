@@ -331,11 +331,6 @@ static rx_handler_result_t br_handle_frame(struct sk_buff **pskb)
 
 	p = br_port_get_rcu(skb->dev);
 #ifdef CONFIG_BRIDGE_CREDIT_MODE
-	// len: all bytes of original packet
-	// data_len : each skb's packet bytes
-	//if (!br_pay_credit(p, skb->data_len, skb->len, skb->data_len)) {
-		//printk(KERN_DEBUG "packet:pay fail.\n");
-		//goto drop;
 	if((*fp_pay)!=NULL){
 		if(!fp_pay(p->vif,skb)){
 			printk(KERN_DEBUG "packet:pay fail.\n");
@@ -459,23 +454,6 @@ static rx_handler_result_t br_handle_frame(struct sk_buff **pskb)
 forward:
 	switch (p->state) {
 	case BR_STATE_FORWARDING:
-		rhook = rcu_dereference(br_should_route_hook);
-#ifdef CONFIG_BRIDGE_CREDIT_MODE
-		printk(KERN_DEBUG "packet:forwarding state.\n");
-#endif
-		if (rhook) {
-#ifdef CONFIG_BRIDGE_CREDIT_MODE
-			printk(KERN_DEBUG "packet:rhook exist.\n");
-#endif
-			if ((*rhook)(skb)) {
-#ifdef CONFIG_BRIDGE_CREDIT_MODE
-				printk(KERN_DEBUG "packet:rhook skb function exist.\n");
-#endif
-				*pskb = skb;
-				return RX_HANDLER_PASS;
-			}
-			dest = eth_hdr(skb)->h_dest;
-		}
 	case BR_STATE_LEARNING:
 #ifdef CONFIG_BRIDGE_CREDIT_MODE
 		printk(KERN_DEBUG "packet:learning state.\n");
