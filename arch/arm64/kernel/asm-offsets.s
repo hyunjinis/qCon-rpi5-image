@@ -1,21 +1,20 @@
 	.arch armv8-a
 	.file	"asm-offsets.c"
-// GNU C11 (Debian 12.2.0-14) version 12.2.0 (aarch64-linux-gnu)
-//	compiled by GNU C version 12.2.0, GMP version 6.2.1, MPFR version 4.1.1-p1, MPC version 1.3.1, isl version isl-0.25-GMP
+// GNU C11 (Ubuntu 13.3.0-6ubuntu2~24.04) version 13.3.0 (aarch64-linux-gnu)
+//	compiled by GNU C version 13.3.0, GMP version 6.3.0, MPFR version 4.2.1, MPC version 1.3.1, isl version isl-0.26-GMP
 
-// warning: MPFR header version 4.1.1-p1 differs from library version 4.2.0.
 // GGC heuristics: --param ggc-min-expand=100 --param ggc-min-heapsize=131072
-// options passed: -mlittle-endian -mgeneral-regs-only -mabi=lp64 -mbranch-protection=pac-ret -O2 -std=gnu11 -fshort-wchar -funsigned-char -fno-common -fno-PIE -fno-strict-aliasing -fno-asynchronous-unwind-tables -fno-unwind-tables -fno-delete-null-pointer-checks -fno-allow-store-data-races -fstack-protector-strong -fno-omit-frame-pointer -fno-optimize-sibling-calls -ftrivial-auto-var-init=zero -fno-stack-clash-protection -fpatchable-function-entry=4,2 -falign-functions=8 -fno-strict-overflow -fstack-check=no -fconserve-stack
+// options passed: -mlittle-endian -mgeneral-regs-only -mabi=lp64 -mbranch-protection=pac-ret -O2 -std=gnu11 -fshort-wchar -funsigned-char -fno-common -fno-PIE -fno-strict-aliasing -fno-asynchronous-unwind-tables -fno-unwind-tables -fno-delete-null-pointer-checks -fno-allow-store-data-races -fstack-protector-strong -fno-omit-frame-pointer -fno-optimize-sibling-calls -ftrivial-auto-var-init=zero -fno-stack-clash-protection -fpatchable-function-entry=4,2 -falign-functions=8 -fstrict-flex-arrays=3 -fno-strict-overflow -fstack-check=no -fconserve-stack -fstack-protector-strong
 	.text
 	.section	.text.startup,"ax",@progbits
 	.align	2
 	.p2align 3,,7
 	.global	main
-	.section	__patchable_function_entries,"awo",@progbits,main
+	.section	__patchable_function_entries,"awo",@progbits,.LPFE6092
 	.align	3
-	.8byte	.LPFE1
+	.8byte	.LPFE6092
 	.section	.text.startup
-.LPFE1:
+.LPFE6092:
 	nop	
 	nop	
 	.type	main, %function
@@ -708,7 +707,7 @@ main:
 	mov	w0, 0	//,
 	ret	
 	.size	main, .-main
-	.ident	"GCC: (Debian 12.2.0-14) 12.2.0"
+	.ident	"GCC: (Ubuntu 13.3.0-6ubuntu2~24.04) 13.3.0"
 	.section	.note.GNU-stack,"",@progbits
 	.section	.note.gnu.property,"a"
 	.align	3

@@ -1,0 +1,16 @@
+menuconfig VIF
+    tristate "Virtual Interface Driver"
+    default m
+    help
+      VIF (Virtual Interface) 네트워크 드라이버를 활성화합니다.
+
+if VIF
+
+config VIF_DEBUG
+    bool "Enable debug messages"
+    default n
+    help
+      VIF 드라이버의 디버그 메시지를 활성화합니다.
+
+endif # VIF
+

@@ -1,4 +1,4 @@
 #define UTS_MACHINE		"aarch64"
-#define LINUX_COMPILE_BY	"rpi1"
-#define LINUX_COMPILE_HOST	"raspberrypi"
-#define LINUX_COMPILER		"aarch64-linux-gnu-gcc (Debian 12.2.0-14) 12.2.0, GNU ld (GNU Binutils for Debian) 2.40"
+#define LINUX_COMPILE_BY	"rpi2"
+#define LINUX_COMPILE_HOST	"rpi2-desktop"
+#define LINUX_COMPILER		"aarch64-linux-gnu-gcc (Ubuntu 13.3.0-6ubuntu2~24.04) 13.3.0, GNU ld (GNU Binutils for Ubuntu) 2.42"

@@ -84,3 +84,12 @@ config BRIDGE_CFM
 	  Say N to exclude this support and reduce the binary size.
 
 	  If unsure, say N.
+
+config VIF
+    tristate "Virtual Interface Module (VIF)"
+    depends on BRIDGE
+    help
+      This module provides a virtual interface for network QoS management.
+
+      If unsure, say N.
+
