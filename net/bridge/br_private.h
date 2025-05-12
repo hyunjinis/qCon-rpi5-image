@@ -62,6 +62,7 @@ struct ancs_container{
 	unsigned int max_credit;
 	unsigned int used_credit;
 	int id;
+	unsigned int image_size;
 	struct list_head off_list;
 	struct net_bridge_port *p;
 };
