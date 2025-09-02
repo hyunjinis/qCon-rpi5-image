@@ -318,6 +318,10 @@ static rx_handler_result_t br_handle_frame(struct sk_buff **pskb)
 #endif
 	skb = skb_share_check(skb, GFP_ATOMIC);
 #ifndef CONFIG_BRIDGE_CREDIT_MODE
+	if (!br_pay_credit(p, skb->data_len, skb->len, skb->data_len)) {
+		printk(KERN_DEBUG "packet:pay fail.\n");
+		goto drop;
+	
 	if (!skb)
 		return RX_HANDLER_CONSUMED;
 #else
